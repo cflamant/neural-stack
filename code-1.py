@@ -67,12 +67,6 @@ class Reverser():
 
         # Negative Log Likelihood Loss for training
         self.NLLL = nn.NLLLoss()
-        #self.data = []
-        ## TODO
-        #for i in range(50):
-        #    seq_len = np.random.randint(1,5)
-        #    #seq_len = 4
-        #    self.data.append(torch.randint(3,self.in_dim,(seq_len,1), device=self.device))
 
 
     def set_hyperparams(self, lr=0.001,
@@ -122,8 +116,6 @@ class Reverser():
         termsym = torch.full((1,batch_size), self.term, dtype=torch.int64, device=self.device)
 
         Xint = torch.randint(3,self.in_dim,(seq_len,batch_size), device=self.device)
-        #TODO
-        #Xint = self.data[np.random.randint(len(self.data))]
 
         # Reverse the sequence
         Yint = torch.flip(Xint, [0])
@@ -173,10 +165,6 @@ class Reverser():
                 self.optimizer.zero_grad()
 
                 # Compute cross-entropy loss
-                # TODO
-                #print(torch.exp(Ypred).flatten(0,1))
-                #print(torch.argmax(Ypred.flatten(0,1), dim=-1))
-                #print(Yint.flatten())
                 loss = self.NLLL(Ypred.flatten(0,1), Yint.flatten())
 
                 loss.backward()
@@ -622,12 +610,12 @@ class LSTM_Reverser(nn.Module):
 if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
-    savefile = 'models/lstm_test_10i20h2l'
+    savefile = 'models/lstm_test_131i256h8l'
     overwrite = False
 
     #torch.autograd.set_detect_anomaly(True)
     #rnn = RNN_Reverser(use_cuda=True, hidden_dim=20, in_dim=10, out_dim=10, max_len=15, num_layers=2)
-    lstm = LSTM_Reverser(use_cuda=True, hidden_dim=20, in_dim=10, out_dim=10, max_len=15, num_layers=2)
+    lstm = LSTM_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, max_len=128, num_layers=8)
     #reverser = Reverser(rnn, optimizer='Adam', lr=0.0001)
     reverser = Reverser(lstm, optimizer='Adam', lr=0.0001)
 
@@ -638,7 +626,7 @@ if __name__ == "__main__":
     else:
         old_loss = np.array([])
 
-    lims = (4,12)
+    lims = (8,64)
     losses = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims)
 
     torch.save(reverser.backend.state_dict(), savefile + '.pt')
