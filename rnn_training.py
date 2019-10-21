@@ -13,39 +13,87 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import grad
+import os
 import reverser     # I symlinked code-1.py to reverser.py to be able to import it. Hyphens are illegal.
 
 if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
-    savefile = 'models/lstm_test_131i256h1l'
+
+    savefile = 'models/rnn_test_256h_1l_50b_Adam_1e-3'
     overwrite = False
 
-    rnn = RNN_Reverser(use_cuda=True, hidden_dim=20, in_dim=10, out_dim=10, max_len=15, num_layers=2)
-    reverser = Reverser(rnn, optimizer='Adam', lr=0.0001)
+    # hyperparameters
+    hidden_dim = 256    # Hidden size
+    num_layers = 1      # number of layers to stack
+    batch_size = 50     # batch size
+    optimizer = 'Adam'  # Optimizer to use
+    lr = 0.001          # Learning rate
+    num_batch = 10000  # Number of batches between saves
+    sessions = 2        # How many times to run num_batch (saving at the end of each)
 
+    # fixed parameters (not to be modified)
+    lims = (8,64)   # train sequence length range
+    in_dim = 131    # 128 chars plus start, separator, and terminator
+    out_dim = 131 
+    max_len = 128   # maximum output length (not including terminator)
+
+    rnn = reverser.RNN_Reverser(use_cuda=True, hidden_dim=hidden_dim, in_dim=in_dim, out_dim=out_dim, max_len=max_len, num_layers=num_layers)
+    rev = reverser.Reverser(rnn, optimizer=optimizer, lr=lr)
+
+    ####################################################################################
+    ### Training section. 
+    ####################################################################################
+
+    # if existing model parameters exist, load them. Otherwise start fresh.
     if os.path.isfile(savefile + '.pt') and not overwrite:
-        reverser.backend.load_state_dict(torch.load(savefile + '.pt'))
+        print("Loading previous model")
+        rev.backend.load_state_dict(torch.load(savefile + '.pt'))
     if os.path.isfile(savefile + '_loss.npy') and not overwrite:
         old_loss = np.load(savefile + '_loss.npy')
     else:
         old_loss = np.array([])
+    if os.path.isfile(savefile + '_valaccs.npy') and not overwrite:
+        old_valaccs = np.load(savefile + '_valaccs.npy')
+    else:
+        old_valaccs = np.array([])
+    if os.path.isfile(savefile + '_testaccs.npy') and not overwrite:
+        old_testaccs = np.load(savefile + '_testaccs.npy')
+    else:
+        old_testaccs = np.array([])
 
-    lims = (8,64)
-    losses = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims)
+    for i in range(sessions):
+        islast = (i == sessions-1)
+        losses, val_accs, test_accs = rev.train(batch_size=batch_size, num_batch=num_batch, seq_lim=lims, last=islast)
 
-    torch.save(reverser.backend.state_dict(), savefile + '.pt')
-    loss_arr = np.array(losses)
-    loss_arr = np.concatenate((old_loss, loss_arr))
-    np.save(savefile + '_loss.npy', loss_arr)
+        torch.save(rev.backend.state_dict(), savefile + '.pt')
+        loss_arr = np.array(losses)
+        loss_arr = np.concatenate((old_loss, loss_arr))
+        np.save(savefile + '_loss.npy', loss_arr)
+        valaccs_arr = np.array(val_accs)
+        valaccs_arr = np.concatenate((old_valaccs, valaccs_arr))
+        np.save(savefile + '_valaccs.npy', valaccs_arr)
+        testaccs_arr = np.array(test_accs)
+        testaccs_arr = np.concatenate((old_testaccs, testaccs_arr))
+        np.save(savefile + '_testaccs.npy', testaccs_arr)
 
-    for i in range(40):
+        old_loss = loss_arr
+        old_valaccs = valaccs_arr
+        old_testaccs = testaccs_arr
+        print(f"session {i}, Checkpoint saved")
+
+    # A sampling of reversing performance at the end
+    for i in range(20):
         seqlen = np.random.randint(lims[0], lims[1]+1)
-        xtest, ytest = reverser.generate_seqs(1, seqlen)
+        xtest, ytest = rev.generate_seqs(1, seqlen)
         print(f'input: {xtest.flatten().cpu().numpy()}')
         print(f'goal: {ytest.flatten().cpu().numpy()}')
-        yhat = reverser.reverse(xtest)
+        yhat = rev.reverse(xtest)
         print(f'pred: {yhat.flatten().cpu().numpy()}')
         print('_________________________')
-    plt.semilogy(loss_arr)
+
+    fig, ax = plt.subplots(3,1)
+    ax[0].plot(loss_arr)
+    ax[1].plot(valaccs_arr)
+    ax[2].plot(testaccs_arr)
     plt.show()

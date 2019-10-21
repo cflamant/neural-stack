@@ -176,7 +176,7 @@ class Reverser():
 
 
 
-    def train(self, batch_size=1, num_batch=10, seq_lim=(8,64), loss_freq=100, acc_freq=10000):
+    def train(self, batch_size=1, num_batch=10, seq_lim=(8,64), loss_freq=100, acc_freq=10000, last=True):
         """Train the backend with generated sequences
 
         Parameters
@@ -193,6 +193,8 @@ class Reverser():
         acc_freq : int
             How often to compute validation and test accuracies (every
             acc_freq batches). Negative or 0 value skips accuracy calculation.
+        last : bool
+            Whether to compute the accuracy after the last iteration.
 
         Returns
         -------
@@ -240,7 +242,7 @@ class Reverser():
 
                 loss.backward()
 
-                #TODO
+                #TODO Can add option for gradient clipping if it seems useful
                 #torch.nn.utils.clip_grad_norm_(self.backend.parameters(),1)
                 self.optimizer.step()
 
@@ -250,6 +252,12 @@ class Reverser():
                     train_losses.append(loss_val)
                 iternum += 1
                 batches.set_postfix(loss=f'{loss_val:.2e}')
+        if last:
+            # Compute accuracy score on validation and test now that we're done
+            if not no_acc_compute:
+                val_acc, test_acc = self.accuracy_scores()
+                val_accs.append(val_acc)
+                test_accs.append(test_acc)
 
         return train_losses, val_accs, test_accs
 
@@ -681,6 +689,9 @@ class LSTM_Reverser(nn.Module):
 ###########################################################################################
 # Begin main portion of script
 ###########################################################################################
+
+# This section is mainly for quick testing of code. Real hyperparameter search runs are
+# performed in accompanying scripts.
 
 if __name__ == "__main__":
     # Any random seed.
