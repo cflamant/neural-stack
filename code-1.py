@@ -13,6 +13,7 @@ from torch.autograd import grad
 import sys
 import os
 import tqdm  # so we can better tell how long training will take
+import dataloader # Get training and validation data
 
 
 class Reverser():
@@ -67,6 +68,9 @@ class Reverser():
 
         # Negative Log Likelihood Loss for training
         self.NLLL = nn.NLLLoss()
+
+        # Get validation and test data for accuracy scoring
+        self.val_x, self.val_y, self.test_x, self.test_y = dataloader.get_data(self.device)
 
 
     def set_hyperparams(self, lr=0.001,
@@ -126,8 +130,53 @@ class Reverser():
 
         return Xint, Yint
 
+    def accuracy_scores(self):
+        """Calculate fine-grained accuracy score on validation and test sets
 
-    def train(self, batch_size=1, num_batch=10, seq_lim=(8,64)):
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        val_acc : float
+            Accuracy score on validation set
+        test_acc : float
+            Accuracy score on test set
+
+        """
+        val_acc = 0.
+        test_acc = 0.
+        for i in range(len(self.val_x)):
+            ypred = self.reverse(self.val_x[i]).flatten().cpu().numpy()
+            num_correct = 0
+            for j in range(min(self.val_y[i].shape[0],ypred.shape[0])):
+                if self.val_y[i][j] == ypred[j]:
+                    num_correct += 1
+            val_acc += num_correct/float(self.val_y[i].shape[0])
+        val_acc /= len(self.val_y)
+
+        for i in range(len(self.test_x)):
+            ypred = self.reverse(self.test_x[i]).flatten().cpu().numpy()
+            num_correct = 0
+            for j in range(min(self.test_y[i].shape[0],ypred.shape[0])):
+                if self.test_y[i][j] == ypred[j]:
+                    num_correct += 1
+            test_acc += num_correct/float(self.test_y[i].shape[0])
+        test_acc /= len(self.test_y)
+
+        # Set back to training mode!
+        self.backend.train()
+
+        #TODO May be removed. Useful to keep tabs on progress
+        print(f'val_acc = {val_acc}')
+        print(f'test_acc = {test_acc}')
+
+        return val_acc, test_acc
+
+
+
+    def train(self, batch_size=1, num_batch=10, seq_lim=(8,64), loss_freq=100, acc_freq=10000):
         """Train the backend with generated sequences
 
         Parameters
@@ -138,19 +187,41 @@ class Reverser():
             Number of batches to create and train on
         seq_lim : tuple of 2 int
             Shortest sequence length and longest possible sequence length
+        loss_freq : int
+            How often to save losses (every loss_freq batches). This is to
+            prevent unnecessarily large loss lists from being created on long runs.
+        acc_freq : int
+            How often to compute validation and test accuracies (every
+            acc_freq batches). Negative or 0 value skips accuracy calculation.
 
         Returns
         -------
-        train_loss : list
+        train_losses : List[float]
             List of cross-entropy loss 
+        val_accs : List[float]
+            List of validation set accuracy 
+        test_accs : List[float]
+            List of test set accuracy 
 
         """
         
         self.backend.train()  # set in training mode
 
-        train_loss = []
+        # don't compute accuracy if this is given
+        no_acc_compute = (acc_freq <= 0)
+
+        train_losses = []
+        val_accs = []
+        test_accs = []
+        iternum = 0
         with tqdm.trange(num_batch) as batches:
             for b in batches:
+                # Compute accuracy score on validation and test
+                if not no_acc_compute and iternum % acc_freq == 0:
+                    val_acc, test_acc = self.accuracy_scores()
+                    val_accs.append(val_acc)
+                    test_accs.append(test_acc)
+
                 # Pick a sequence length
                 seq_len = np.random.randint(seq_lim[0],seq_lim[1]+1)
                 # Create a batch of int-encoded symbol sequences
@@ -175,10 +246,12 @@ class Reverser():
 
                 # record loss
                 loss_val = loss.cpu().item()
-                train_loss.append(loss_val)
+                if iternum % loss_freq == 0:
+                    train_losses.append(loss_val)
+                iternum += 1
                 batches.set_postfix(loss=f'{loss_val:.2e}')
 
-        return train_loss
+        return train_losses, val_accs, test_accs
 
     def reverse(self, Xint):
         """Given Xint in int-encoding, return Yint in int-encoding
@@ -334,7 +407,9 @@ class RNN_Reverser(nn.Module):
             raise ValueError("Target Y required in training mode.")
 
         # Encode through the entire input sequence excluding the separator.
-        enc_outputs, hn = self.encoder(X[:-1,:,:])
+        enc_outputs, hn_all = self.encoder(X[:-1,:,:])
+        # Chunk tensor into list for hidden state of each layer
+        hn = torch.chunk(hn_all.view(-1,self.hidden_dim),self.num_layers)
 
         # initialize output tensor
         if self.training:
@@ -527,7 +602,10 @@ class LSTM_Reverser(nn.Module):
             raise ValueError("Target Y required in training mode.")
 
         # Encode through the entire input sequence excluding the separator.
-        enc_outputs, (hn, cn) = self.encoder(X[:-1,:,:])
+        enc_outputs, (hn_all, cn_all) = self.encoder(X[:-1,:,:])
+        # Chunk tensor into list for hidden/cell state of each layer
+        hn = torch.chunk(hn_all.view(-1,self.hidden_dim),self.num_layers)
+        cn = torch.chunk(cn_all.view(-1,self.hidden_dim),self.num_layers)
 
         # initialize output tensor
         if self.training:
@@ -546,8 +624,7 @@ class LSTM_Reverser(nn.Module):
         ##################################################################
 
         # Set up next hidden state and cell state
-        hnp = []
-        cnp = []
+        hnp, cnp = [], []
         # Start with the separator character, which should be the last char in the input
         htemp, ctemp = self.decoder[0](X[-1,:,:], (hn[0],cn[0]))
         hnp.append(htemp)
@@ -556,8 +633,7 @@ class LSTM_Reverser(nn.Module):
             htemp, ctemp = self.decoder[i](hnp[i-1], (hn[i],cn[i]))
             hnp.append(htemp)
             cnp.append(ctemp)
-        hn = hnp
-        cn = cnp
+        hn, cn = hnp, cnp
         dec_output = self.linear(hn[-1])
         # Now pass it through a logsoftmax
         Ypred[0,:,:] = self.logsoftmax(dec_output)
@@ -570,8 +646,7 @@ class LSTM_Reverser(nn.Module):
         else:
             stop = False
         while t < T_out and not stop:
-            hnp = []
-            cnp = []
+            hnp, cnp = [], []
             if self.training:
                 htemp, ctemp = self.decoder[0](Y[t-1,:,:], (hn[0], cn[0]))
                 hnp.append(htemp)
@@ -610,12 +685,12 @@ class LSTM_Reverser(nn.Module):
 if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
-    savefile = 'models/lstm_test_131i256h8l'
+    savefile = 'models/lstm_test_131i256h1l'
     overwrite = False
 
     #torch.autograd.set_detect_anomaly(True)
     #rnn = RNN_Reverser(use_cuda=True, hidden_dim=20, in_dim=10, out_dim=10, max_len=15, num_layers=2)
-    lstm = LSTM_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, max_len=128, num_layers=8)
+    lstm = LSTM_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, max_len=128, num_layers=1)
     #reverser = Reverser(rnn, optimizer='Adam', lr=0.0001)
     reverser = Reverser(lstm, optimizer='Adam', lr=0.0001)
 
@@ -627,7 +702,7 @@ if __name__ == "__main__":
         old_loss = np.array([])
 
     lims = (8,64)
-    losses = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims)
+    losses, val_accs, train_accs = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims)
 
     torch.save(reverser.backend.state_dict(), savefile + '.pt')
     loss_arr = np.array(losses)
