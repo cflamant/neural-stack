@@ -3,7 +3,7 @@ Author: Cedric Flamant
 CS 281 Set 3
 Exercise 1 and 2, RNN, LSTM, LSTM+NeuralStack to reverse strings
 
-This script serves as a template for training Reverser with LSTM
+This script serves as a template for training Reverser with RNN
 backends
 """
 import numpy as np
@@ -20,16 +20,16 @@ if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
 
-    savefile = 'models/lstm_test_256h_1l_50b_Adam_1e-3'
+    savefile = 'models/rnn_256h_1l_50b_RMSprop_1e-4'
     overwrite = False
 
     # hyperparameters
     hidden_dim = 256    # Hidden size
     num_layers = 1      # number of layers to stack
     batch_size = 50     # batch size
-    optimizer = 'Adam'  # Optimizer to use
-    lr = 0.001          # Learning rate
-    num_batch = 10000  # Number of batches between saves
+    optimizer = 'RMSprop'  # Optimizer to use
+    lr = 0.0001          # Learning rate
+    num_batch = 100000  # Number of batches between saves
     sessions = 2        # How many times to run num_batch (saving at the end of each)
 
     # fixed parameters (not to be modified)
@@ -38,8 +38,8 @@ if __name__ == "__main__":
     out_dim = 131 
     max_len = 128   # maximum output length (not including terminator)
 
-    lstm = reverser.LSTM_Reverser(use_cuda=True, hidden_dim=hidden_dim, in_dim=in_dim, out_dim=out_dim, max_len=max_len, num_layers=num_layers)
-    rev = reverser.Reverser(lstm, optimizer=optimizer, lr=lr)
+    rnn = reverser.RNN_Reverser(use_cuda=True, hidden_dim=hidden_dim, in_dim=in_dim, out_dim=out_dim, max_len=max_len, num_layers=num_layers)
+    rev = reverser.Reverser(rnn, optimizer=optimizer, lr=lr)
 
     ####################################################################################
     ### Training section. 
@@ -92,8 +92,8 @@ if __name__ == "__main__":
         print(f'pred: {yhat.flatten().cpu().numpy()}')
         print('_________________________')
 
-    fig, ax = plt.subplots(3,1)
-    ax[0].plot(loss_arr)
-    ax[1].plot(valaccs_arr)
-    ax[2].plot(testaccs_arr)
-    plt.show()
+    #fig, ax = plt.subplots(3,1)
+    #ax[0].plot(loss_arr)
+    #ax[1].plot(valaccs_arr)
+    #ax[2].plot(testaccs_arr)
+    #plt.show()

@@ -29,8 +29,8 @@ if __name__ == "__main__":
     batch_size = 50     # batch size
     optimizer = 'Adam'  # Optimizer to use
     lr = 0.001          # Learning rate
-    num_batch = 10000  # Number of batches between saves
-    sessions = 2        # How many times to run num_batch (saving at the end of each)
+    num_batch = 100000  # Number of batches between saves
+    sessions = 5        # How many times to run num_batch (saving at the end of each)
 
     # fixed parameters (not to be modified)
     lims = (8,64)   # train sequence length range
