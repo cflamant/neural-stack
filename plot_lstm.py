@@ -15,8 +15,8 @@ if __name__ == "__main__":
     loss_freq = 100
     acc_freq = 10000
 
-    filenames = ['models/rnn_256h_1l_50b_Adam_1e-3',
-                 'models/rnn_256h_1l_50b_Adam_1e-4',
+    filenames = ['models/lstm_256h_1l_50b_SGD_1e-3',
+                 'models/lstm_256h_1l_50b_SGD_1e-4',
                  'models/lstm_256h_1l_50b_Adam_1e-3',
                  'models/lstm_256h_1l_50b_Adam_1e-4',
                 ]
