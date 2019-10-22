@@ -18,6 +18,7 @@ if __name__ == "__main__":
     filenames = ['models/rnn_256h_1l_50b_Adam_1e-4',
                  'models/rnn_256h_2l_50b_Adam_1e-4',
                  'models/rnn_256h_4l_50b_Adam_1e-4',
+                 'models/longrnn_256h_4l_50b_Adam_5e-5',
                  'models/rnn_256h_8l_50b_Adam_1e-4'
                 ]
     losses, val_accs, test_accs = [], [], []
