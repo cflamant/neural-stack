@@ -20,16 +20,16 @@ if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
 
-    savefile = 'models/longlstm_256h_4l_50b_Adam_1e-4'
+    savefile = 'models/longlstm_256h_2l_50b_Adam_1e-4'
     overwrite = False
 
     # hyperparameters
     hidden_dim = 256    # Hidden size
-    num_layers = 4      # number of layers to stack
+    num_layers = 2      # number of layers to stack
     batch_size = 50     # batch size
     optimizer = 'Adam'  # Optimizer to use
     lr = 0.0001          # Learning rate
-    num_batch = 500000  # Number of batches between saves
+    num_batch = 300000  # Number of batches between saves
     sessions = 1        # How many times to run num_batch (saving at the end of each)
 
     # fixed parameters (not to be modified)
