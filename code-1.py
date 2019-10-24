@@ -750,21 +750,23 @@ class NeuralStack(nn.Module):
 
         # Create new strength list
         sn = []
+        # Create a list of totals
+        totals = [torch.zeros_like(d)]
+        for j in range(1,t-1):
+            totals.append(s[t-j-1] + totals[j-1])
         for i in range(t-1):
-            totprev = torch.zeros_like(d)
-            for j in range(i+1,t-1):
-                totprev += s[j]
-            inside = F.relu(u - totprev)
+            inside = F.relu(u - totals[-(i+1)])
             sn.append(F.relu(s[i] - inside))
         sn.append(d)
 
         # Create readout vector
         r = torch.zeros_like(v)
+        # Create a new list of totals
+        totals = [torch.zeros_like(d)]
+        for j in range(1,t):
+            totals.append(sn[t-j] + totals[j-1])
         for i in range(t):
-            tots = torch.zeros_like(d)
-            for j in range(i+1,t):
-                tots += sn[j]
-            inside = F.relu(1. - tots)
+            inside = F.relu(1. - totals[-(i+1)])
             r += torch.min(sn[i],inside) * Vn[i]
 
         return Vn, sn, r
@@ -1081,17 +1083,17 @@ if __name__ == "__main__":
         stack = LSTMandStack_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, embedding_dim=64, max_len=128, num_layers=1)
         #reverser = Reverser(rnn, optimizer='Adam', lr=0.0001)
         #reverser = Reverser(lstm, optimizer='Adam', lr=0.0001)
-        reverser = Reverser(stack, optimizer='Adam', lr=0.0001)
+        reverser = Reverser(stack, optimizer='Adam', lr=0.001)
 
         if os.path.isfile(savefile + '.pt') and not overwrite:
-            reverser.backend.load_state_dict(torch.load(savefile + '.pt', device=self.device))
+            reverser.backend.load_state_dict(torch.load(savefile + '.pt'))
         if os.path.isfile(savefile + '_loss.npy') and not overwrite:
             old_loss = np.load(savefile + '_loss.npy')
         else:
             old_loss = np.array([])
 
         lims = (8,64)
-        losses, val_accs, train_accs = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims, acc_freq=-1)
+        losses, val_accs, train_accs = reverser.train(batch_size=50, num_batch=10, seq_lim=lims, acc_freq=-1)
 
         torch.save(reverser.backend.state_dict(), savefile + '.pt')
         loss_arr = np.array(losses)
