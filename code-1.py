@@ -686,6 +686,90 @@ class LSTM_Reverser(nn.Module):
             t += 1
 
         return Ypred[:t,:,:]
+
+
+class NeuralStack(nn.Module):
+    """A neural stack (differentiable stack) as described in https://arxiv.org/pdf/1506.02516.pdf. 
+    This does not include the controller unit.
+    """
+
+    def __init__(self):
+        """Initialize the neural stack.
+        All dimensions are inferred from what is passed to it.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+        super(NeuralStack, self).__init__()
+
+
+    def forward(self, V, s, d, u, v):
+        """Forward method for the stack. Initiates one step in time.
+        Note that it does not keep track of dimensions, so the user is
+        responsible for sending the right shape of data so the output shapes
+        can be inferred.
+
+        Parameters
+        ----------
+        V : List[torch.Tensor of dim (batch_size,m)]
+            Values list containing t-1 tensors where t is the current time
+            and m is the size of the embedding
+        s : List[torch.Tensor of dim (batch_size,1)]
+            List of strengths corresponding to the vectors in V.
+        d : torch.Tensor of dim (batch_size,1)
+            Fraction to push
+        u : torch.Tensor of dim (batch_size,1)
+            Fraction to pop
+        v : torch.Tensor of dim (batch_size,m)
+            Value to potentially add to the stack.
+
+        Returns
+        -------
+        Vn : List[torch.Tensor of dim (batch_size,m)]
+            Values list containing t tensors where t is the current time. These
+            are the next state's stack values.
+        sn : List[torch.Tensor of dim (batch_size,1)]
+            List of strengths corresponding to the vectors in Vn.
+        r : torch.Tensor of dim (batch_size,m)
+            Readout from stack. Has the interpretation of being a superposition of
+            possible popped value vectors.
+
+        """
+
+        # Compute the current time
+        t = len(s) + 1
+
+        # Update V to make Vn
+        V.append(v)
+        Vn = V
+
+        # Create new strength list
+        sn = []
+        for i in range(t-1):
+            totprev = torch.zeros_like(d)
+            for j in range(i+1,t-1):
+                totprev += s[j]
+            inside = F.relu(u - totprev)
+            sn.append(F.relu(s[i] - inside))
+        sn.append(d)
+
+        # Create readout vector
+        r = torch.zeros_like(v)
+        for i in range(t):
+            tots = torch.zeros_like(d)
+            for j in range(i+1,t):
+                tots += sn[j]
+            inside = F.relu(1. - tots)
+            r += torch.min(sn[i],inside) * Vn[i]
+
+        return Vn, sn, r
+
+
 ###########################################################################################
 # Begin main portion of script
 ###########################################################################################
@@ -696,40 +780,69 @@ class LSTM_Reverser(nn.Module):
 if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
-    savefile = 'models/lstm_test_131i256h1l'
-    overwrite = False
+    testit = 1
 
-    #torch.autograd.set_detect_anomaly(True)
-    #rnn = RNN_Reverser(use_cuda=True, hidden_dim=20, in_dim=10, out_dim=10, max_len=15, num_layers=2)
-    lstm = LSTM_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, max_len=128, num_layers=1)
-    #reverser = Reverser(rnn, optimizer='Adam', lr=0.0001)
-    reverser = Reverser(lstm, optimizer='Adam', lr=0.0001)
+    if testit == 0:
+        savefile = 'models/lstm_test_131i256h1l'
+        overwrite = False
 
-    if os.path.isfile(savefile + '.pt') and not overwrite:
-        reverser.backend.load_state_dict(torch.load(savefile + '.pt'))
-    if os.path.isfile(savefile + '_loss.npy') and not overwrite:
-        old_loss = np.load(savefile + '_loss.npy')
+        #torch.autograd.set_detect_anomaly(True)
+        #rnn = RNN_Reverser(use_cuda=True, hidden_dim=20, in_dim=10, out_dim=10, max_len=15, num_layers=2)
+        lstm = LSTM_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, max_len=128, num_layers=1)
+        #reverser = Reverser(rnn, optimizer='Adam', lr=0.0001)
+        reverser = Reverser(lstm, optimizer='Adam', lr=0.0001)
+
+        if os.path.isfile(savefile + '.pt') and not overwrite:
+            reverser.backend.load_state_dict(torch.load(savefile + '.pt'))
+        if os.path.isfile(savefile + '_loss.npy') and not overwrite:
+            old_loss = np.load(savefile + '_loss.npy')
+        else:
+            old_loss = np.array([])
+
+        lims = (8,64)
+        losses, val_accs, train_accs = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims)
+
+        torch.save(reverser.backend.state_dict(), savefile + '.pt')
+        loss_arr = np.array(losses)
+        loss_arr = np.concatenate((old_loss, loss_arr))
+        np.save(savefile + '_loss.npy', loss_arr)
+
+        for i in range(40):
+            seqlen = np.random.randint(lims[0], lims[1]+1)
+            xtest, ytest = reverser.generate_seqs(1, seqlen)
+            print(f'input: {xtest.flatten().cpu().numpy()}')
+            print(f'goal: {ytest.flatten().cpu().numpy()}')
+            yhat = reverser.reverse(xtest)
+            print(f'pred: {yhat.flatten().cpu().numpy()}')
+            print('_________________________')
+        plt.semilogy(loss_arr)
+        plt.show()
     else:
-        old_loss = np.array([])
+        # test out neural stack.
+        nstack = NeuralStack()
+        batch_size = 5
+        m = 3
+        v1 = torch.ones((batch_size,m))
+        v2 = torch.ones((batch_size,m)) * 2
+        v3 = torch.ones((batch_size,m)) * 3
 
-    lims = (8,64)
-    losses, val_accs, train_accs = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims)
+        u1 = torch.zeros((batch_size,1))
+        u2 = torch.ones((batch_size,1)) * 0.1
+        u3 = torch.ones((batch_size,1)) * 0.9
 
-    torch.save(reverser.backend.state_dict(), savefile + '.pt')
-    loss_arr = np.array(losses)
-    loss_arr = np.concatenate((old_loss, loss_arr))
-    np.save(savefile + '_loss.npy', loss_arr)
+        d1 = torch.ones((batch_size,1)) * 0.8
+        d2 = torch.ones((batch_size,1)) * 0.5
+        d3 = torch.ones((batch_size,1)) * 0.9
 
-    for i in range(40):
-        seqlen = np.random.randint(lims[0], lims[1]+1)
-        xtest, ytest = reverser.generate_seqs(1, seqlen)
-        print(f'input: {xtest.flatten().cpu().numpy()}')
-        print(f'goal: {ytest.flatten().cpu().numpy()}')
-        yhat = reverser.reverse(xtest)
-        print(f'pred: {yhat.flatten().cpu().numpy()}')
-        print('_________________________')
-    plt.semilogy(loss_arr)
-    plt.show()
+        V = []
+        s = []
+
+        V, s, r = nstack(V,s,d1,u1,v1)
+        print(r)
+        V, s, r = nstack(V,s,d2,u2,v2)
+        print(r)
+        V, s, r = nstack(V,s,d3,u3,v3)
+        print(r)
 
 
 
