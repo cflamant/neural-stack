@@ -770,6 +770,295 @@ class NeuralStack(nn.Module):
         return Vn, sn, r
 
 
+class LSTMandStack_Reverser(nn.Module):
+    """An LSTM equipped with a neural stack, seq2seq network for reversing strings.
+    Has two main LSTM parts, an encoder LSTM and a decoder LSTM. Both interface with
+    the same stack.
+    """
+
+    def __init__(self, use_cuda=False, **kwargs):
+        """Initialize the network. Various hyperparameters are accepted, see the function
+        set_hyperparams() for descriptions
+        """
+        super(LSTMandStack_Reverser, self).__init__()
+
+        self.p = self.set_hyperparams(**kwargs)
+        self.use_cuda = use_cuda
+
+        if self.use_cuda:
+            if torch.cuda.is_available():
+                self.device = torch.device('cuda')
+            else:
+                print("Backend: CUDA is not available.")
+                self.device = torch.device('cpu')
+        else:
+            self.device = torch.device('cpu')
+
+        self.in_dim = self.p['in_dim']
+        self.out_dim = self.p['out_dim']
+        self.hidden_dim = self.p['hidden_dim']
+        self.embedding_dim = self.p['embedding_dim']
+        self.num_layers = self.p['num_layers']
+
+        self.max_len = self.p['max_len']
+
+        # For convenience, define indices of start symbol, separator, and terminate
+        self.strt = 0
+        self.sep = 1
+        self.term = 2
+        
+        # Set up layers
+        # The encoder will consist of LSTMCells so we can interface easily with the neural
+        # stack after every step.
+        self.encoder = nn.ModuleList()
+        self.encoder.append(nn.LSTMCell(input_size=self.in_dim+self.embedding_dim, hidden_size=self.hidden_dim))
+        for i in range(1, self.num_layers):
+            self.encoder.append(nn.LSTMCell(input_size=self.hidden_dim, hidden_size=self.hidden_dim))
+
+        # The decoder will consist of LSTMCells since we will need to do a conditional
+        # check to know when to stop outputting (when it produces a terminate symbol).
+        self.decoder = nn.ModuleList()
+        self.decoder.append(nn.LSTMCell(input_size=self.in_dim+self.embedding_dim, hidden_size=self.hidden_dim))
+        for i in range(1, self.num_layers):
+            self.decoder.append(nn.LSTMCell(input_size=self.hidden_dim, hidden_size=self.hidden_dim))
+        self.linear = nn.Linear(in_features=self.hidden_dim, out_features=self.out_dim)
+
+        # Initialize the neural stack
+        self.nstack = NeuralStack()
+
+        # Initialize projection matrices. Use Xavier initialization
+        Wd = torch.randn((1,self.hidden_dim), device=self.device)
+        nn.init.xavier_normal_(Wd)
+        self.Wd = torch.nn.Parameter(data=Wd, requires_grad=True)
+        self.bd = torch.nn.Parameter(data=torch.tensor(0., device=self.device), requires_grad=True)
+
+        Wu = torch.randn((1,self.hidden_dim), device=self.device)
+        nn.init.xavier_normal_(Wu)
+        self.Wu = torch.nn.Parameter(data=Wu, requires_grad=True)
+        self.bu = torch.nn.Parameter(data=torch.tensor(0., device=self.device), requires_grad=True)
+
+        Wv = torch.randn((self.embedding_dim, self.hidden_dim), device=self.device)
+        nn.init.xavier_normal_(Wv)
+        self.Wv = torch.nn.Parameter(data=Wv, requires_grad=True)
+        self.bv = torch.nn.Parameter(data=torch.zeros(self.embedding_dim, device=self.device),
+                                     requires_grad=True)
+
+        Wo = torch.randn((self.hidden_dim, self.hidden_dim), device=self.device)
+        nn.init.xavier_normal_(Wo)
+        self.Wo = torch.nn.Parameter(data=Wo, requires_grad=True)
+        self.bo = torch.nn.Parameter(data=torch.zeros(self.hidden_dim, device=self.device),
+                                     requires_grad=True)
+
+        # Initialize hidden state (treated as parameter to be optimized)
+        self.h0 = []
+        self.c0 = []
+        for l in range(self.num_layers):
+            hh = torch.nn.Parameter(data=torch.randn(self.hidden_dim, device=self.device),
+                                    requires_grad=True)
+            cc = torch.nn.Parameter(data=torch.randn(self.hidden_dim, device=self.device),
+                                    requires_grad=True)
+            self.h0.append(hh)
+            self.c0.append(cc)
+        # Log softmax (for use with NLLLoss error layer)
+        self.logsoftmax = nn.LogSoftmax(dim=-1)
+
+
+    def set_hyperparams(self, hidden_dim=16,
+                              in_dim=131,
+                              out_dim=131,
+                              embedding_dim=16,
+                              num_layers=1,
+                              max_len=128,
+                              **kwargs):
+        """Initialize dictionary of hyperparameters for model.
+
+        Parameters
+        ----------
+        hidden_dim : int
+            Size of the hidden state
+        in_dim : int
+            Size of the input dimension. Should be equal to the number of possible 
+            characters in the string to be reversed, plus 3 for the starting symbol,
+            separator, and terminal symbol.
+        out_dim : int
+            Size of the output dimension. Should be equal to the number of possible
+            characters in the string to be reversed, plus 3 for the starting symbol,
+            separator, and terminal symbol.
+        embedding_dim : int
+            Size of the embedding for the neural stack (dimension of value vectors)
+        num_layers : int
+            Number of LSTM layers to stack.
+        max_len : int
+            Maximum length of output. Can be made arbitrarily large if long strings
+            are expected. Just used to avoid infinite output.
+
+        Returns
+        -------
+        p : dictionary
+            Dictionary containing hyperparameters by name
+
+        """
+
+        p = dict(hidden_dim=hidden_dim,
+                      in_dim=in_dim,
+                      out_dim=out_dim,
+                      embedding_dim=embedding_dim,
+                      num_layers=num_layers,
+                      max_len=max_len)
+        return p
+
+
+    def forward(self, X, Y=None):
+        """Forward propagation of the module. Takes in a sequence of one-hot-encoded
+        vectors each representing one of the 128 characters, returns a sequence of
+        log-probabilities of each symbol (logSoftmax on last layer).
+
+        Parameters
+        ----------
+        X : tensor of dimension (seq_len, minibatch, in_dim)
+            Input one-hots corresponding to sequence of characters. Note that all sequences
+            in the minibatch must have the same length (so the separator appears in the same
+            place)
+        Y : tensor of dimension (seq_len, minibatch, in_dim)
+            Output of one-hots corresponding to correct target sequence of characters. Only
+            used if in training.
+
+        Returns
+        -------
+        Ypred : tensor of dimension (*, minibatch, out_dim)
+            If training:
+            Returns a sequence of log-probabilities of each symbol (logSoftmax on last layer)
+            Length is variable, and determined by the decoder itself based on when the terminal
+            symbol is output (i.e. has the highest probability)
+        """
+
+        T_in = X.shape[0]
+        batch_size = X.shape[1]
+        in_dim = X.shape[2]
+        if not self.training and batch_size > 1:
+            # Not an intended use case
+            raise IndexError("Batch size can only be 1 when model is in evaluation mode")
+        if self.training and Y is None:
+            raise ValueError("Target Y required in training mode.")
+
+        ##################################################################
+        ## Encode until separator is hit                                ##
+        ##################################################################
+        T_in = X.shape[0]
+        hn, cn = [], []
+        for i in range(self.num_layers):
+            hn.append(self.h0[i].expand(batch_size,-1))
+            cn.append(self.c0[i].expand(batch_size,-1))
+        # Initialize empty V, s, r
+        V = [torch.zeros((batch_size,self.embedding_dim),device=self.device)]
+        s = [torch.zeros((batch_size,1), device=self.device)]
+        r = torch.zeros((batch_size,self.embedding_dim),device=self.device)
+        for t in range(T_in-1):
+            # Set up next hidden state and cell state
+            hnp, cnp = [], []
+            # concat read state to input
+            layer1in = torch.cat([X[t,:,:], r], dim=-1)
+            htemp, ctemp = self.encoder[0](layer1in, (hn[0], cn[0]))
+            hnp.append(htemp)
+            cnp.append(ctemp)
+            for i in range(1, self.num_layers):  # if more than one recurrent layer
+                htemp, ctemp = self.encoder[i](hnp[i-1], (hn[i], cn[i]))
+                hnp.append(htemp)
+                cnp.append(ctemp)
+            hn, cn = hnp, cnp
+            d = torch.sigmoid(torch.matmul(self.Wd,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bd)
+            u = torch.sigmoid(torch.matmul(self.Wu,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bu)
+            v = torch.tanh(torch.matmul(self.Wv,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bv)
+            # interface with stack
+            V,s,r = self.nstack(V,s,d,u,v)
+
+        # initialize output tensor
+        if self.training:
+            # No need to let it output further than the loss will compare, which
+            # is the length k + 1 for the terminator. 
+            Ypred = torch.zeros((Y.shape[0],batch_size,in_dim), device=self.device)
+        else:
+            # Potentially can output indefinitely, so we give it a maximum length to
+            # avoid it not stopping. However, we don't tell it how long the target is.
+            Ypred = torch.zeros((self.max_len+1, batch_size, in_dim), device=self.device)
+
+        T_out = Ypred.shape[0]
+
+        ##################################################################
+        ## Decode, but keep going until the stop character is produced. ##
+        ##################################################################
+
+        # Set up next hidden state and cell state
+        hnp, cnp = [], []
+        # Start with the separator character, which should be the last char in the input
+        # concat read state to input
+        layer1in = torch.cat([X[-1,:,:], r], dim=-1)
+        htemp, ctemp = self.decoder[0](layer1in, (hn[0],cn[0]))
+        hnp.append(htemp)
+        cnp.append(ctemp)
+        for i in range(1,self.num_layers):  # If more than one recurrent layer
+            htemp, ctemp = self.decoder[i](hnp[i-1], (hn[i],cn[i]))
+            hnp.append(htemp)
+            cnp.append(ctemp)
+        hn, cn = hnp, cnp
+        d = torch.sigmoid(torch.matmul(self.Wd,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bd)
+        u = torch.sigmoid(torch.matmul(self.Wu,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bu)
+        v = torch.tanh(torch.matmul(self.Wv,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bv)
+        o = torch.tanh(torch.matmul(self.Wo,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bo)
+        # interface with stack
+        V,s,r = self.nstack(V,s,d,u,v)
+        dec_output = self.linear(o)
+        # Now pass it through a logsoftmax
+        Ypred[0,:,:] = self.logsoftmax(dec_output)
+
+        t = 1
+        # Only relevant if not training 
+        if not self.training:
+            # Stop if terminal symbol outputted (highest probability)
+            stop = (torch.argmax(Ypred[0,0,:]).item() == self.term)
+        else:
+            stop = False
+        while t < T_out and not stop:
+            hnp, cnp = [], []
+            if self.training:
+                layer1in = torch.cat([Y[t-1,:,:], r], dim=-1)
+                htemp, ctemp = self.decoder[0](layer1in, (hn[0], cn[0]))
+                hnp.append(htemp)
+                cnp.append(ctemp)
+                for i in range(1, self.num_layers):  # if more than one recurrent layer
+                    htemp, ctemp = self.decoder[i](hnp[i-1], (hn[i], cn[i]))
+                    hnp.append(htemp)
+                    cnp.append(ctemp)
+            else:
+                # Use most likely previous output as input (i.e. "greedy" approach
+                # as opposed to beam search:
+                # https://guillaumegenthial.github.io/sequence-to-sequence.html )
+                Yprevint = torch.argmax(Ypred[t-1,:,:], dim=-1)
+                Yprev = F.one_hot(Yprevint, num_classes=self.in_dim).float()
+                layer1in = torch.cat([Yprev, r], dim=-1)
+                htemp, ctemp = self.decoder[0](layer1in, (hn[0], cn[0]))
+                hnp.append(htemp)
+                cnp.append(ctemp)
+                for i in range(1, self.num_layers):
+                    htemp, ctemp = self.decoder[i](hnp[i-1], (hn[i], cn[i]))
+                    hnp.append(htemp)
+                    cnp.append(ctemp)
+            hn, cn = hnp, cnp
+            d = torch.sigmoid(torch.matmul(self.Wd,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bd)
+            u = torch.sigmoid(torch.matmul(self.Wu,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bu)
+            v = torch.tanh(torch.matmul(self.Wv,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bv)
+            o = torch.tanh(torch.matmul(self.Wo,hn[-1].unsqueeze(-1)).squeeze(-1) + self.bo)
+            # interface with stack
+            V,s,r = self.nstack(V,s,d,u,v)
+            dec_output = self.linear(o)
+            # Now pass it through a logsoftmax
+            Ypred[t,:,:] = self.logsoftmax(dec_output)
+            if not self.training:
+                # Stop if terminal symbol outputted (highest probability)
+                stop = (torch.argmax(Ypred[t,0,:]).cpu().item() == self.term)
+            t += 1
+
+        return Ypred[:t,:,:]
 ###########################################################################################
 # Begin main portion of script
 ###########################################################################################
@@ -780,27 +1069,29 @@ class NeuralStack(nn.Module):
 if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
-    testit = 1
+    testit = 0
 
     if testit == 0:
-        savefile = 'models/lstm_test_131i256h1l'
+        savefile = 'models/stack_test_131i256h1l'
         overwrite = False
 
         #torch.autograd.set_detect_anomaly(True)
         #rnn = RNN_Reverser(use_cuda=True, hidden_dim=20, in_dim=10, out_dim=10, max_len=15, num_layers=2)
-        lstm = LSTM_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, max_len=128, num_layers=1)
+        #lstm = LSTM_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, max_len=128, num_layers=1)
+        stack = LSTMandStack_Reverser(use_cuda=True, hidden_dim=256, in_dim=131, out_dim=131, embedding_dim=64, max_len=128, num_layers=1)
         #reverser = Reverser(rnn, optimizer='Adam', lr=0.0001)
-        reverser = Reverser(lstm, optimizer='Adam', lr=0.0001)
+        #reverser = Reverser(lstm, optimizer='Adam', lr=0.0001)
+        reverser = Reverser(stack, optimizer='Adam', lr=0.0001)
 
         if os.path.isfile(savefile + '.pt') and not overwrite:
-            reverser.backend.load_state_dict(torch.load(savefile + '.pt'))
+            reverser.backend.load_state_dict(torch.load(savefile + '.pt', device=self.device))
         if os.path.isfile(savefile + '_loss.npy') and not overwrite:
             old_loss = np.load(savefile + '_loss.npy')
         else:
             old_loss = np.array([])
 
         lims = (8,64)
-        losses, val_accs, train_accs = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims)
+        losses, val_accs, train_accs = reverser.train(batch_size=50, num_batch=200000, seq_lim=lims, acc_freq=-1)
 
         torch.save(reverser.backend.state_dict(), savefile + '.pt')
         loss_arr = np.array(losses)
@@ -817,7 +1108,7 @@ if __name__ == "__main__":
             print('_________________________')
         plt.semilogy(loss_arr)
         plt.show()
-    else:
+    elif testit == 1:
         # test out neural stack.
         nstack = NeuralStack()
         batch_size = 5
