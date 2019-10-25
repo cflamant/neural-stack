@@ -716,11 +716,11 @@ class NeuralStack(nn.Module):
 
         Parameters
         ----------
-        V : List[torch.Tensor of dim (batch_size,m)]
-            Values list containing t-1 tensors where t is the current time
+        V : torch.Tensor of dim (batch_size,t-1,m)
+            Values stack containing t-1 sub-tensors where t is the current time
             and m is the size of the embedding
-        s : List[torch.Tensor of dim (batch_size,1)]
-            List of strengths corresponding to the vectors in V.
+        s : torch.Tensor of dim (batch_size,t-1,1)
+            Tensor of strengths corresponding to the vectors in V.
         d : torch.Tensor of dim (batch_size,1)
             Fraction to push
         u : torch.Tensor of dim (batch_size,1)
@@ -730,10 +730,10 @@ class NeuralStack(nn.Module):
 
         Returns
         -------
-        Vn : List[torch.Tensor of dim (batch_size,m)]
-            Values list containing t tensors where t is the current time. These
+        Vn : torch.Tensor of dim (batch_size,t,m)
+            Values stack containing t sub-tensors where t is the current time. These
             are the next state's stack values.
-        sn : List[torch.Tensor of dim (batch_size,1)]
+        sn : torch.Tensor of dim (batch_size,t,1)
             List of strengths corresponding to the vectors in Vn.
         r : torch.Tensor of dim (batch_size,m)
             Readout from stack. Has the interpretation of being a superposition of
@@ -742,32 +742,30 @@ class NeuralStack(nn.Module):
         """
 
         # Compute the current time
-        t = len(s) + 1
+        t = s.shape[1] + 1
 
         # Update V to make Vn
-        V.append(v)
-        Vn = V
+        Vn = torch.cat((V,v.unsqueeze(1)), dim=1)
 
-        # Create new strength list
-        sn = []
-        # Create a list of totals
-        totals = [torch.zeros_like(d)]
-        for j in range(1,t-1):
-            totals.append(s[t-j-1] + totals[j-1])
-        for i in range(t-1):
-            inside = F.relu(u - totals[-(i+1)])
-            sn.append(F.relu(s[i] - inside))
-        sn.append(d)
+        # Create a new strength list
+        sn = torch.zeros((s.shape[0],s.shape[1]+1,s.shape[2]), device=s.device)
 
-        # Create readout vector
-        r = torch.zeros_like(v)
-        # Create a new list of totals
-        totals = [torch.zeros_like(d)]
-        for j in range(1,t):
-            totals.append(sn[t-j] + totals[j-1])
-        for i in range(t):
-            inside = F.relu(1. - totals[-(i+1)])
-            r += torch.min(sn[i],inside) * Vn[i]
+        # Create upper triangle of ones (zeros on diagonal though). size t-1xt-1
+        At = torch.ones((t-1,t-1), device=s.device)
+        At = torch.triu(At, diagonal=1)
+
+        # Populate new strength list
+        sn[:,:t-1,:] = F.relu(s - F.relu(u.unsqueeze(1) - torch.matmul(At,s)))
+        sn[:,t-1,:] = d
+
+        #### Compute readout vector ####
+        # Create upper triangle of ones (zeros on diag), size txt
+        Atn = torch.ones((t,t), device=s.device)
+        Atn = torch.triu(Atn, diagonal=1)
+
+        # vectors of "weights" of each stack vector to output
+        alpha = torch.min(sn, F.relu(1. - torch.matmul(Atn,sn))).squeeze(-1)
+        r = torch.matmul(alpha.unsqueeze(1), Vn).squeeze(1)
 
         return Vn, sn, r
 
@@ -952,8 +950,8 @@ class LSTMandStack_Reverser(nn.Module):
             hn.append(self.h0[i].expand(batch_size,-1))
             cn.append(self.c0[i].expand(batch_size,-1))
         # Initialize empty V, s, r
-        V = [torch.zeros((batch_size,self.embedding_dim),device=self.device)]
-        s = [torch.zeros((batch_size,1), device=self.device)]
+        V = torch.zeros((batch_size,1,self.embedding_dim),device=self.device)
+        s = torch.zeros((batch_size,1,1), device=self.device)
         r = torch.zeros((batch_size,self.embedding_dim),device=self.device)
         for t in range(T_in-1):
             # Set up next hidden state and cell state
@@ -1113,7 +1111,7 @@ if __name__ == "__main__":
     elif testit == 1:
         # test out neural stack.
         nstack = NeuralStack()
-        batch_size = 5
+        batch_size = 2
         m = 3
         v1 = torch.ones((batch_size,m))
         v2 = torch.ones((batch_size,m)) * 2
@@ -1127,11 +1125,12 @@ if __name__ == "__main__":
         d2 = torch.ones((batch_size,1)) * 0.5
         d3 = torch.ones((batch_size,1)) * 0.9
 
-        V = []
-        s = []
+        V = torch.zeros(batch_size,1,m)
+        s = torch.zeros(batch_size,1,1)
 
         V, s, r = nstack(V,s,d1,u1,v1)
         print(r)
+        print(r.shape)
         V, s, r = nstack(V,s,d2,u2,v2)
         print(r)
         V, s, r = nstack(V,s,d3,u3,v3)
