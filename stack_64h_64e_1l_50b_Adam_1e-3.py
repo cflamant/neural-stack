@@ -20,7 +20,7 @@ if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
 
-    savefile = 'models/stack_64h_64e_1l_50b_Adam_1e-3_accfreq1000'
+    savefile = 'models/stack_64h_64e_1l_50b_Adam_1e-3_accfreq1000_2'
     overwrite = True
 
     # hyperparameters
