@@ -174,6 +174,52 @@ class Reverser():
 
         return val_acc, test_acc
 
+    def coarse_scores(self):
+        """Calculate coarse-grained accuracy score on validation and test sets
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        val_acc : float
+            Accuracy score on validation set
+        test_acc : float
+            Accuracy score on test set
+
+        """
+        val_acc = 0.
+        test_acc = 0.
+        for i in range(len(self.val_x)):
+            ypred = self.reverse(self.val_x[i]).flatten().cpu().numpy()
+            mistake = False
+            for j in range(min(self.val_y[i].shape[0],ypred.shape[0])):
+                if self.val_y[i][j] != ypred[j]:
+                    mistake = True
+            if not mistake:
+                val_acc += 1.
+        val_acc /= len(self.val_y)
+
+        for i in range(len(self.test_x)):
+            ypred = self.reverse(self.test_x[i]).flatten().cpu().numpy()
+            mistake = False
+            for j in range(min(self.test_y[i].shape[0],ypred.shape[0])):
+                if self.test_y[i][j] != ypred[j]:
+                    mistake = True
+            if not mistake:
+                test_acc += 1.
+        test_acc /= len(self.test_y)
+
+        # Set back to training mode!
+        self.backend.train()
+
+        #TODO May be removed. Useful to keep tabs on progress
+        print(f'val_acc = {val_acc}')
+        print(f'test_acc = {test_acc}')
+
+        return val_acc, test_acc
+
 
 
     def train(self, batch_size=1, num_batch=10, seq_lim=(8,64), loss_freq=100, acc_freq=10000, last=True):
