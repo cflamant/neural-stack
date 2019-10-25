@@ -1,0 +1,5 @@
+python manystack_64h_64e_1l_50b_Adam_1e-3_1.py
+python manystack_64h_64e_1l_50b_Adam_1e-3_2.py
+python manystack_64h_64e_1l_50b_Adam_1e-3_3.py
+python manystack_64h_64e_1l_50b_Adam_1e-3_4.py
+python manystack_64h_64e_1l_50b_Adam_1e-3_5.py

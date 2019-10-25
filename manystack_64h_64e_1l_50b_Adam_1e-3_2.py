@@ -20,7 +20,7 @@ if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
 
-    savefile = 'models/stack_64h_64e_1l_50b_Adam_1e-3'
+    savefile = 'models/manystack_64h_64e_1l_50b_Adam_1e-3_2'
     overwrite = True
 
     # hyperparameters
@@ -29,7 +29,7 @@ if __name__ == "__main__":
     num_layers = 1      # number of layers to stack
     batch_size = 50     # batch size
     optimizer = 'Adam'  # Optimizer to use
-    lr = 0.0001          # Learning rate
+    lr = 0.001          # Learning rate
     num_batch = 10000  # Number of batches between saves
     sessions = 1        # How many times to run num_batch (saving at the end of each)
 
@@ -94,7 +94,7 @@ if __name__ == "__main__":
         print('_________________________')
 
     fig, ax = plt.subplots(3,1)
-    ax[0].plot(loss_arr)
+    ax[0].semilogy(loss_arr)
     ax[1].plot(valaccs_arr)
     ax[2].plot(testaccs_arr)
     plt.show()

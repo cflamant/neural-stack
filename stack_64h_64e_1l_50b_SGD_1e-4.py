@@ -20,7 +20,7 @@ if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
 
-    savefile = 'models/stack_64h_64e_1l_50b_Adam_1e-3'
+    savefile = 'models/stack_64h_64e_1l_50b_SGD_1e-4'
     overwrite = True
 
     # hyperparameters
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     embedding_dim = 64  # Embedding size for neural stack
     num_layers = 1      # number of layers to stack
     batch_size = 50     # batch size
-    optimizer = 'Adam'  # Optimizer to use
+    optimizer = 'SGD'  # Optimizer to use
     lr = 0.0001          # Learning rate
     num_batch = 10000  # Number of batches between saves
     sessions = 1        # How many times to run num_batch (saving at the end of each)
