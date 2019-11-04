@@ -1,2 +1,0 @@
-python stack_64h_64e_1l_50b_Adam_1e-4.py
-python stack_16h_16e_1l_50b_Adam_1e-3.py

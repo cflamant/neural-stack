@@ -14,13 +14,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import grad
 import os
-import reverser     # I symlinked code-1.py to reverser.py to be able to import it. Hyphens are illegal.
+from .. import reverser    # I symlinked code-1.py to reverser.py to be able to import it. Hyphens are illegal.
 
 if __name__ == "__main__":
     # Any random seed.
     np.random.seed(None)
 
-    savefile = 'models/rnn_256h_1l_50b_Adam_1e-3'
+    savefile = '../models/rnn_256h_1l_50b_Adam_1e-4_test'
     overwrite = False
 
     # hyperparameters
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     num_layers = 1      # number of layers to stack
     batch_size = 50     # batch size
     optimizer = 'Adam'  # Optimizer to use
-    lr = 0.001          # Learning rate
+    lr = 0.0001          # Learning rate
     num_batch = 100000  # Number of batches between saves
     sessions = 2        # How many times to run num_batch (saving at the end of each)
 
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     # if existing model parameters exist, load them. Otherwise start fresh.
     if os.path.isfile(savefile + '.pt') and not overwrite:
         print("Loading previous model")
-        rev.backend.load_state_dict(torch.load(savefile + '.pt', map_location=rnn.device))
+        rev.backend.load_state_dict(torch.load(savefile + '.pt'))
     if os.path.isfile(savefile + '_loss.npy') and not overwrite:
         old_loss = np.load(savefile + '_loss.npy')
     else:
