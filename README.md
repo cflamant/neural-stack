@@ -72,3 +72,9 @@ Specific runs can be launched as follows. Change directory into the root directo
 for example. 
 
 Other scripts can be run in a similar manner, such as plotting scripts, using `python -m neural-stack.plot_best` while in the root directory.
+
+### Required Packages
+- PyTorch
+- tqdm
+- numpy
+- matplotlib
