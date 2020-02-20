@@ -19,19 +19,19 @@ and the expected output would be:
 
 During training, strings within the length constraint were generated randomly, spanning a space of 10<sup>135</sup> possible training sequences, so in practice "infinite" data was available and overfitting is impossible with the network sizes tested.
 
-I tested standard recurrent neural networks (Elman RNN and LSTM) as a baseline for this task, and an LSTM connected to DeepMind's differentiable neural stack. The differentiable stack architecture can be used as a standard stack data structure, but it has inputs that can be controlled by a neural network. All the operations in the stack are differentiable, allowing for standard backpropagation techniques to train the neural network to use the stack in a way it finds useful, storing whatever type of encoded information in the data structure. 
+I tested standard recurrent neural networks (Elman RNN and LSTM) as a baseline for this task, and an LSTM connected to DeepMind's differentiable neural stack. The differentiable stack architecture can be used as a standard stack data structure, but it has inputs that can be controlled by a neural network. All the operations in the stack are differentiable, allowing for standard backpropagation techniques to train the neural network to use the stack in a way it finds useful, storing any type of encoded information in the data structure. 
 
 ![neural stack schematic](neural-stack/plots/neuralstack.png)
 
-From [Learning to Transduce with Unbounded Memory](https://arxiv.org/abs/1506.02516)
+(From [Learning to Transduce with Unbounded Memory](https://arxiv.org/abs/1506.02516))
 
-While using such an architecture to reverse strings is an academic example, as noted in the original paper the ability to reverse information, or to store it away for later use, is a very powerful addition to neural networks. Without needing to specify how these data structures are to be used in a given task, a network can learn to make use of them. For example, when translating between languages, there are often reorderings of parts-of-speech where a stack could be helpful. While standard RNN approaches have been shown to work for these tasks, they fail to consistently generalize to strings longer than seen in training. The logically unbounded memory offered by a neural stack solves the issue with long-range reorderings.
+While using such an architecture to reverse strings is an academic example, as noted in the original paper the ability to reverse information, or to store it away for later use, is a very powerful addition to neural networks. Without needing to specify how these data structures are to be used in a given task, a network can learn to make use of them. For example, when translating between languages, there are often reorderings of parts-of-speech where a stack could be helpful. While standard RNN approaches have been shown to work for these tasks, they fail to consistently generalize to strings longer than those seen in training. The logically unbounded memory offered by a neural stack solves the issue with long-range reorderings.
 
 ## Results
 
 The performances of the RNN, LSTM, and LSTM + Neural Stack models were tested on fixed validation data (using strings of the same length as in training) and test data (using strings strictly longer than those used in training, guaranteeing that they were not seen).
 
-The performance was evaluated using "coarse" and "fine" accuracy scores, as in the paper, with
+The performance was evaluated using "coarse" and "fine" accuracy scores with
 
 ![accuracy metrics](neural-stack/plots/coarsefine.png)
 
@@ -55,7 +55,7 @@ Typically, the networks with neural stacks would eventually figure out how to pr
 
 ![consistency plots](neural-stack/plots/nsconsistency.png)
 
-In the identical runs (with different starting configurations of the randomized weights) 2 of 6 runs did not use the stack correctly. That said, the success rate of 4/6 is quite good, since in those cases we see that it achieves perfect accuracy.
+In these identical runs (with different starting configurations of the randomized weights), 2 of 6 runs did not use the stack correctly. That said, the success rate of 4/6 is quite good, since in those cases we see that the network achieves perfect accuracy.
 
 ## Additional Notes
 
