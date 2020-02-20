@@ -62,4 +62,13 @@ In these identical runs (with different starting configurations of the randomize
 For additional details about the runs performed, the setup of the test, and the model architectures, please refer to the [report](neuralstack.pdf) I wrote in the class.
 
 ### General Code Structure
-The bulk of the code is in [`neural-stack/reverser.py`](neural-stack/reverser.py), with helper files `dataloader.py` to load validation and test data, and `gen_val_and_test.py` for generating this data.
+The bulk of the code is in [`neural-stack/reverser.py`](neural-stack/reverser.py), with helper files [`dataloader.py`](neural-stack/dataloader.py) to load validation and test data, and [`gen_val_and_test.py`](neural-stack/gen_val_and_test.py) for generating this data. 
+
+Parameters of specific runs are found in scripts in the `neural-stack/runs/` directory.
+Specific runs can be launched as follows. Change directory into the root directory of this package (highest level `neural-stack/`). Then, run the module as a script using 
+
+`python -m neural-stack.runs.stack_64h_64e_1l_50b_Adam_1e-3`
+
+for example. 
+
+Other scripts can be run in a similar manner, such as plotting scripts, using `python -m neural-stack.plot_best` while in the root directory.
