@@ -5,4 +5,4 @@ Based on "Learning to Transduce with Unbounded Memory" by Edward Grefenstette, K
 
 A multi-layer vanilla RNN, LSTM, and LSTM with a neural stack are trained to reverse an input sequence of characters. 
 
-![test](neural-stack/plots/best_loss.pdf)
+![test](neural-stack/plots/best_loss.png)
