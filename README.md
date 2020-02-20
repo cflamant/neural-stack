@@ -60,3 +60,6 @@ In these identical runs (with different starting configurations of the randomize
 ## Additional Notes
 
 For additional details about the runs performed, the setup of the test, and the model architectures, please refer to the [report](neuralstack.pdf) I wrote in the class.
+
+### General Code Structure
+The bulk of the code is in [`neural-stack/reverser.py`](neural-stack/reverser.py), with helper files `dataloader.py` to load validation and test data, and `gen_val_and_test.py` for generating this data.
